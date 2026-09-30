@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/tauri-2-24C8D8" alt="Tauri" />
   <img src="https://img.shields.io/badge/react-19-61DAFB" alt="React" />
   <img src="https://img.shields.io/badge/fork%20of-Zushi%200.1.13-c89b3c" alt="Fork of Zushi" />
+  <img src="https://img.shields.io/badge/version-0.2.0-c89b3c" alt="Version" />
 </p>
 
 <p align="center">
@@ -65,9 +66,16 @@ Kushi watches Celestial's local library (`~/Library/Application Support/com.divi
 
 Implementation: [`src-tauri/src/commands/celestial.rs`](src-tauri/src/commands/celestial.rs).
 
-## Building
+## Installation
 
-There are no Kushi releases yet. Build it from source on an Apple Silicon Mac:
+1. Download `Kushi_x.x.x_aarch64.dmg` from the [latest release](https://github.com/deandevz/kushi/releases/latest). Apple Silicon only for now.
+2. Open the `.dmg` and drag Kushi to Applications.
+3. Kushi is ad-hoc signed, so macOS will say it "is damaged and can't be opened". Run this once in Terminal, then open it normally:
+   ```
+   xattr -cr /Applications/Kushi.app
+   ```
+
+## Building from source
 
 **Requirements:** Rust (stable), Node 20+, CMake, Xcode Command Line Tools.
 
@@ -78,14 +86,12 @@ cmake --build mod-tools/build -j$(sysctl -n hw.ncpu)
 mkdir -p src-tauri/binaries
 cp mod-tools/build/mod-tools src-tauri/binaries/mod-tools-aarch64-apple-darwin
 
-# 2. Build the app
+# 2. Build the app (.app and .dmg)
 npm ci
-npx tauri build --bundles app
-
-# 3. Install
-cp -R src-tauri/target/release/bundle/macos/Kushi.app /Applications/
-xattr -cr /Applications/Kushi.app
+npx tauri build --bundles app,dmg
 ```
+
+The `.dmg` lands in `src-tauri/target/release/bundle/dmg/`.
 
 Kushi keeps Zushi's bundle identifier (`com.zushi.app`) on purpose, so an existing Zushi install carries over its downloaded skins, customs and settings. Don't run both apps at once.
 
