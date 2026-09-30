@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { syncCelestial } from "./lib/commands";
 import { Swords, Layers, Package, Settings as SettingsIcon, Star } from "lucide-react";
 import { useGamePath } from "./hooks/useGamePath";
@@ -195,6 +196,25 @@ function App() {
     syncRef.current();
     const id = setInterval(() => syncRef.current(), 3000);
     return () => clearInterval(id);
+  }, []);
+
+  // The patcher repairs outdated mods for the current patch while applying.
+  const customsRef = useRef(customs.customs);
+  customsRef.current = customs.customs;
+  useEffect(() => {
+    const off = listen<{ source: string; converted: number }[]>("mods-repaired", (event) => {
+      const names = event.payload.map(
+        (r) =>
+          customsRef.current.find((c) => c.file_path === r.source)?.displayName ??
+          r.source.split("/").pop()?.replace(/\.(zip|fantome)$/i, "") ??
+          r.source
+      );
+      setToastTone("info");
+      setToastMessage(`Updated for the current patch: ${names.join(", ")}`);
+    });
+    return () => {
+      off.then((fn) => fn());
+    };
   }, []);
 
   const activeItems = useMemo<ActiveItem[]>(() => {

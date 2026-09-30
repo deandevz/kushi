@@ -3,6 +3,7 @@ pub mod customs;
 pub mod game_path;
 pub mod mod_info;
 pub mod patcher;
+pub mod repair;
 pub mod skins;
 
 use std::fs;

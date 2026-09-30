@@ -26,7 +26,7 @@ export default function Toast({ message, onClose, duration = 4000, tone = "error
   return (
     <div
       className={[
-        "fixed top-0 right-5 z-50",
+        "fixed right-5 bottom-16 z-50",
         "flex items-center gap-3 rounded-lg py-3 pr-3 pl-4",
         "bg-charcoal-200 border-border border",
         tone === "error" ? "border-l-error border-l-2" : "border-l-gold-400 border-l-2",

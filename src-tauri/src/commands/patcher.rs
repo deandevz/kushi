@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Serializes patcher setup (kill-old → import → mkoverlay → spawn → record pid).
 /// Two live mod-tools tracers on the same game task port make the kernel SIGSEGV
@@ -175,8 +175,16 @@ fn start_apply(
             }
         }
 
-        if let Err(e) =
-            do_apply_skins_bg(binary, base, game_path, zip_paths, state.clone(), gen, setup_guard)
+        if let Err(e) = do_apply_skins_bg(
+            &app,
+            binary,
+            base,
+            game_path,
+            zip_paths,
+            state.clone(),
+            gen,
+            setup_guard,
+        )
         {
             if let Ok(mut s) = state.lock() {
                 if s.patcher_gen == gen {
@@ -192,6 +200,7 @@ fn start_apply(
 }
 
 fn do_apply_skins_bg(
+    app: &AppHandle,
     binary: PathBuf,
     base: PathBuf,
     game_path: String,
@@ -210,23 +219,35 @@ fn do_apply_skins_bg(
     fs::create_dir_all(&overlay_dir).map_err(|e| e.to_string())?;
     fs::write(&config_file, "").map_err(|e| e.to_string())?;
 
-    // Step 1: Import all skins
+    // Step 1: Import all skins, repaired for the current patch when needed.
+    let repair_cache = base.join("repaired");
+    let mut repaired = Vec::new();
     let mut mod_names = Vec::new();
     for (i, zip_path) in zip_paths.iter().enumerate() {
         let mod_name = format!("mod_{}", i);
         let mod_dir = installed_dir.join(&mod_name);
 
+        let prepared = super::repair::prepare(zip_path, &game_path, &repair_cache);
+        if prepared.converted > 0 {
+            eprintln!("[zushi] repaired {zip_path}: {} values", prepared.converted);
+            repaired.push(RepairedMod { source: zip_path.clone(), converted: prepared.converted });
+        }
+
         run_mod_tools(
             &binary,
             &[
                 "import".into(),
-                zip_path.clone(),
+                prepared.path,
                 mod_dir.to_string_lossy().to_string(),
                 format!("--game:{}", game_path),
             ],
         )?;
 
         mod_names.push(mod_name);
+    }
+
+    if !repaired.is_empty() {
+        app.emit("mods-repaired", &repaired).ok();
     }
 
     // Step 2: Build overlay with all mods
@@ -424,3 +445,9 @@ pub fn clear_work_dir(
 }
 
 use super::dir_size;
+
+#[derive(Clone, serde::Serialize)]
+struct RepairedMod {
+    source: String,
+    converted: usize,
+}

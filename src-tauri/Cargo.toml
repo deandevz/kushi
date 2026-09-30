@@ -26,3 +26,7 @@ libc = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 base64 = "0.22"
 ltk_modpkg = "0.12"
+ltk_meta = "0.8"
+ltk_wad = "0.5"
+ltk_hash = "0.4"
+indexmap = "2"
