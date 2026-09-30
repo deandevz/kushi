@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Zushi",
+  "productName": "Kushi",
   "version": "0.1.13",
   "identifier": "com.zushi.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Zushi",
+        "title": "Kushi",
         "width": 1280,
         "height": 720,
         "resizable": false,

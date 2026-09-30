@@ -338,8 +338,8 @@ function App() {
     <div className="bg-charcoal-400 relative flex h-screen">
       <aside className="border-border flex w-50 shrink-0 flex-col border-r">
         <div className="flex items-end gap-2.5 px-4 py-4 select-none">
-          <img src={logo} alt="Zushi" className="h-9 w-9" />
-          <span className="font-logo text-gold-400 text-4xl leading-6 uppercase">Zushi</span>
+          <img src={logo} alt="Kushi" className="h-9 w-9" />
+          <span className="font-logo text-gold-400 text-4xl leading-6 uppercase">Kushi</span>
         </div>
 
         <div className="border-border mx-3 border-b" />
@@ -378,7 +378,7 @@ function App() {
               fill="currentColor"
               className="text-gold-400 shrink-0"
             />
-            <span className="whitespace-nowrap">Star Zushi on GitHub</span>
+            <span className="whitespace-nowrap">Based on Zushi</span>
           </button>
 
           {update.updateAvailable && update.latestVersion ? (

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 
 const GITHUB_REPO = "Mouadzz/zushi";
+const IS_FORK = true;
 const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
 const API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
@@ -20,6 +21,8 @@ export function useVersionCheck() {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   useEffect(() => {
+    // Kushi is a fork: upstream Zushi releases would replace it, so don't offer them.
+    if (IS_FORK) return;
     (async () => {
       try {
         const currentVersion = await getVersion();

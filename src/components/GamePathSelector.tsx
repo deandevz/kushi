@@ -85,11 +85,11 @@ export default function GamePathSelector({
   return (
     <div className="flex h-full items-center justify-center">
       <div className="flex max-w-md flex-col items-center gap-6 px-6 text-center">
-        <img src={logo} alt="Zushi" className="h-14 w-14" />
+        <img src={logo} alt="Kushi" className="h-14 w-14" />
 
         <div>
           <h1 className="text-ink text-lg font-medium">
-            {isSetup ? "Welcome to Zushi" : "League of Legends not found"}
+            {isSetup ? "Welcome to Kushi" : "League of Legends not found"}
           </h1>
           <p className="text-ink-secondary mt-1.5 text-sm leading-relaxed">
             {isSetup && detectedPath

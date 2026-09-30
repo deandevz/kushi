@@ -147,7 +147,7 @@ export default function Settings({
             <div className="flex flex-col gap-0.5">
               <span className="text-ink text-sm">Launch at login</span>
               <span className="text-ink-muted text-xs">
-                Start Zushi automatically when you log in
+                Start Kushi automatically when you log in
               </span>
             </div>
           </div>
