@@ -1,13 +1,41 @@
 import { useState, useEffect, useCallback } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Upload, X, Check, FileArchive, Package } from "lucide-react";
-import type { CustomMod } from "../types";
+import { Upload, Package } from "lucide-react";
+import CustomCard from "./CustomCard";
+import { championAvatar } from "../hooks/useChampions";
+import type { Champion, CustomMod } from "../types";
+
+type CustomGroup = { key: string; label: string; champion: Champion | null; mods: CustomMod[] };
+
+// Champion groups alphabetically, global mods (maps, UI, fonts) last.
+function groupCustoms(customs: CustomMod[]): CustomGroup[] {
+  const byChamp = new Map<string, CustomGroup>();
+  const other: CustomMod[] = [];
+  for (const c of customs) {
+    if (!c.champion) {
+      other.push(c);
+      continue;
+    }
+    const g = byChamp.get(c.champion.id) ?? {
+      key: c.champion.id,
+      label: c.champion.name,
+      champion: c.champion,
+      mods: [],
+    };
+    g.mods.push(c);
+    byChamp.set(c.champion.id, g);
+  }
+  const groups = [...byChamp.values()].sort((a, b) => a.label.localeCompare(b.label));
+  if (other.length) groups.push({ key: "__other", label: "Other mods", champion: null, mods: other });
+  for (const g of groups) g.mods.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  return groups;
+}
 
 interface CustomsProps {
   customs: CustomMod[];
   patcherActive: boolean;
-  onAdd: (path: string) => Promise<void>;
+  onAdd: (path: string, autoEnable: boolean) => Promise<void>;
   onRemove: (name: string) => Promise<void>;
   onToggle: (name: string) => void;
 }
@@ -24,12 +52,12 @@ export default function Customs({
   const [error, setError] = useState<string | null>(null);
 
   const handleAdd = useCallback(
-    async (path: string) => {
+    async (path: string, autoEnable: boolean) => {
       const fileName = path.split("/").pop() ?? path;
       setAdding(fileName);
       setError(null);
       try {
-        await onAdd(path);
+        await onAdd(path, autoEnable);
       } catch (e) {
         setError(String(e));
       } finally {
@@ -53,7 +81,7 @@ export default function Customs({
             const lower = p.toLowerCase();
             return lower.endsWith(".zip") || lower.endsWith(".fantome");
           });
-          zips.forEach(handleAdd);
+          zips.forEach((p) => handleAdd(p, zips.length === 1));
         } else if (type === "leave") {
           setDraggingOver(false);
         } else {
@@ -77,7 +105,7 @@ export default function Customs({
     });
     if (!selected) return;
     const paths = Array.isArray(selected) ? selected : [selected];
-    for (const p of paths) handleAdd(p);
+    for (const p of paths) handleAdd(p, paths.length === 1);
   }
 
   const activeCount = customs.filter((c) => c.enabled).length;
@@ -96,7 +124,8 @@ export default function Customs({
       <div
         onClick={handleBrowse}
         className={[
-          "border-border mx-4 mt-4 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-5 transition-all",
+          "border-border mx-4 mt-4 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 transition-all",
+          customs.length > 0 ? "flex-row py-2.5" : "flex-col py-5",
           patcherActive
             ? "cursor-default opacity-40"
             : draggingOver
@@ -118,7 +147,7 @@ export default function Customs({
               ? `Adding ${adding}...`
               : "Drop mods here"}
         </p>
-        {!patcherActive && <p className="text-ink-muted text-xs">or click to browse</p>}
+        {!patcherActive && <p className="text-ink-muted text-xs">{customs.length > 0 ? "· " : ""}or click to browse</p>}
       </div>
 
       {error && (
@@ -133,59 +162,41 @@ export default function Customs({
           <p className="text-ink-secondary text-sm">No custom mods yet</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="flex flex-wrap gap-4">
-            {customs.map((custom) => (
-              <div key={custom.name} className="relative">
-                <button
-                  onClick={() => !patcherActive && onToggle(custom.name)}
-                  disabled={patcherActive}
-                  className={[
-                    "relative h-24 w-36 overflow-hidden rounded transition-all",
-                    patcherActive ? "cursor-default opacity-50" : "cursor-pointer",
-                    custom.enabled
-                      ? "ring-gold-400 ring-offset-charcoal-400 ring-2 ring-offset-1"
-                      : patcherActive
-                        ? "ring-charcoal-50/20 ring-1"
-                        : "ring-charcoal-50/20 hover:ring-charcoal-50/40 ring-1",
-                  ].join(" ")}
-                  title={custom.name}
-                >
-                  <div className="bg-charcoal-300 absolute inset-0" />
-
-                  <div className="absolute inset-0 flex items-center justify-center pb-4">
-                    <FileArchive
-                      size={34}
-                      strokeWidth={1}
-                      className={custom.enabled ? "text-gold-400/70" : "text-ink-muted/40"}
-                    />
+        <div className="flex-1 overflow-y-auto pb-4">
+          {groupCustoms(customs).map(({ key, label, champion, mods }) => (
+            <div key={key} className="border-border border-b px-4 py-3">
+              <div className="mb-2.5 flex items-center gap-2 select-none">
+                {champion ? (
+                  <img
+                    src={championAvatar(champion.id)}
+                    alt={label}
+                    className="h-6 w-6 rounded object-cover"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="bg-charcoal-300 flex h-6 w-6 items-center justify-center rounded">
+                    <Package size={12} strokeWidth={1.5} className="text-ink-muted" />
                   </div>
-
-                  {custom.enabled && (
-                    <div className="bg-gold-400 absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-white/30 shadow-sm">
-                      <Check size={11} strokeWidth={3} className="text-charcoal-600" />
-                    </div>
-                  )}
-
-                  <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/40 via-black/15 to-transparent px-2 pt-5 pb-1.5">
-                    <p className="line-clamp-2 text-[11px] leading-tight text-white/90">
-                      {custom.name}
-                    </p>
-                  </div>
-                </button>
-
-                {!patcherActive && (
-                  <button
-                    onClick={() => onRemove(custom.name)}
-                    className="bg-charcoal-500 hover:bg-error text-ink-muted absolute top-1.5 left-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full shadow transition-colors hover:text-white"
-                    title="Remove"
-                  >
-                    <X size={10} strokeWidth={2.5} />
-                  </button>
+                )}
+                <span className="text-ink text-xs font-medium">{label}</span>
+                <span className="text-ink-muted text-[10px] tabular-nums">{mods.length}</span>
+                {champion && (
+                  <span className="text-ink-muted ml-auto text-[10px]">one active per champion</span>
                 )}
               </div>
-            ))}
-          </div>
+              <div className="flex flex-wrap gap-3">
+                {mods.map((custom) => (
+                  <CustomCard
+                    key={custom.name}
+                    custom={custom}
+                    patcherActive={patcherActive}
+                    onToggle={onToggle}
+                    onRemove={onRemove}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

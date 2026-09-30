@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PatcherStatus, DownloadedSkin } from "../types";
+import type { PatcherStatus, DownloadedSkin, ModInfo } from "../types";
 
 export async function detectGamePath(): Promise<string | null> {
   return invoke<string | null>("detect_game_path");
@@ -89,4 +89,12 @@ export async function clearAllCustoms(): Promise<void> {
 
 export async function getCustomsDirSize(): Promise<number> {
   return invoke("get_customs_dir_size");
+}
+
+export async function readModInfo(path: string): Promise<ModInfo> {
+  return invoke<ModInfo>("read_mod_info", { path });
+}
+
+export async function readModImage(path: string): Promise<string | null> {
+  return invoke<string | null>("read_mod_image", { path });
 }

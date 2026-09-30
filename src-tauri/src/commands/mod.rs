@@ -1,5 +1,6 @@
 pub mod customs;
 pub mod game_path;
+pub mod mod_info;
 pub mod patcher;
 pub mod skins;
 

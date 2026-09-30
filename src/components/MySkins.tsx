@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { Layers, Check, Info, X, Search } from "lucide-react";
-import { splashUrl, findChampionByName, championAvatar } from "../hooks/useChampions";
-import { lookupSplashNum, lookupChromaInfo, ensureChromaInfo } from "../hooks/useSkinData";
-import type { DownloadedSkin } from "../types";
+import { Layers, Check, Info, X, Search, Package } from "lucide-react";
+import { findChampionByName, championAvatar, normalizeChampion } from "../hooks/useChampions";
+import { lookupChromaInfo, ensureChromaInfo } from "../hooks/useSkinData";
+import { SkinThumb } from "./Thumbs";
+import CustomCard from "./CustomCard";
+import type { CustomMod, DownloadedSkin } from "../types";
 
 function useChromaReady(): boolean {
   const [ready, setReady] = useState(false);
@@ -29,43 +31,18 @@ type DownloadGroup = {
 
 type Selection = Record<string, string>;
 
+// One row per champion: downloaded skins and custom mods side by side, so the
+// one-skin-per-champion rule is visible in a single place.
+type ChampionRow = { champion: string; groups: DownloadGroup[]; customs: CustomMod[] };
+
 interface MySkinsProps {
   downloads: DownloadedSkin[];
   patcherActive: boolean;
   selection: Selection;
   onSelectionChange: (selection: Selection) => void;
   onDelete: (championName: string, skinName: string) => Promise<void>;
-}
-
-function SkinThumb({ championName, skinName }: { championName: string; skinName: string }) {
-  const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const champ = findChampionByName(championName);
-  const num = lookupSplashNum(skinName);
-
-  if (!champ || num === null || failed) {
-    return <div className="bg-charcoal-600 h-full w-full" />;
-  }
-
-  return (
-    <>
-      {!loaded && (
-        <div className="from-charcoal-600 via-charcoal-400 to-charcoal-600 animate-shimmer absolute inset-0 bg-linear-to-r bg-size-[200%_100%]" />
-      )}
-      <img
-        src={splashUrl(champ.id, num)}
-        alt={skinName}
-        className={[
-          "h-full w-full object-cover object-[center_20%]",
-          loaded ? "opacity-100" : "opacity-0",
-        ].join(" ")}
-        loading="lazy"
-        draggable={false}
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-      />
-    </>
-  );
+  customs: CustomMod[];
+  onToggleCustom: (name: string) => void;
 }
 
 function ChampAvatar({ championName }: { championName: string }) {
@@ -97,6 +74,8 @@ export default function MySkins({
   selection,
   onSelectionChange,
   onDelete,
+  customs,
+  onToggleCustom,
 }: MySkinsProps) {
   const chromaReady = useChromaReady(); // re-render once Community Dragon chroma data lands
 
@@ -132,7 +111,8 @@ export default function MySkins({
     await Promise.all(skinNames.map((n) => onDelete(championName, n)));
   };
 
-  const selectedCount = Object.keys(selection).length;
+  const selectedCount =
+    Object.keys(selection).length + customs.filter((c) => c.enabled).length;
   const [search, setSearch] = useState("");
 
   // Grouping scans the ~9k skin database per skin, so memoize it on downloads
@@ -164,13 +144,36 @@ export default function MySkins({
     return map;
   }, [downloads, chromaReady]);
 
-  const filteredEntries = useMemo(() => {
-    const entries = [...grouped.entries()];
-    const query = search.trim().toLowerCase();
-    return query ? entries.filter(([champion]) => champion.toLowerCase().includes(query)) : entries;
-  }, [grouped, search]);
+  const { rows, otherCustoms } = useMemo(() => {
+    const byKey = new Map<string, ChampionRow>();
+    for (const [champion, groups] of grouped.entries()) {
+      byKey.set(normalizeChampion(champion), { champion, groups, customs: [] });
+    }
+    const other: CustomMod[] = [];
+    for (const c of customs) {
+      if (!c.champion) {
+        other.push(c);
+        continue;
+      }
+      const key = normalizeChampion(c.champion.name);
+      const row = byKey.get(key) ?? { champion: c.champion.name, groups: [], customs: [] };
+      row.customs.push(c);
+      byKey.set(key, row);
+    }
+    for (const row of byKey.values()) {
+      row.customs.sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }
+    const rows = [...byKey.values()].sort((a, b) => a.champion.localeCompare(b.champion));
+    return { rows, otherCustoms: other };
+  }, [grouped, customs]);
 
-  if (downloads.length === 0) {
+  const query = search.trim().toLowerCase();
+  const filteredRows = query
+    ? rows.filter((r) => r.champion.toLowerCase().includes(query))
+    : rows;
+  const showOther = otherCustoms.length > 0 && (!query || "other mods".includes(query));
+
+  if (downloads.length === 0 && customs.length === 0) {
     return (
       <div className="flex h-full flex-col">
         <div className="border-border flex shrink-0 items-center border-b px-4 py-3">
@@ -199,6 +202,7 @@ export default function MySkins({
       <div className="border-border flex shrink-0 items-center gap-3 border-b px-4 py-3">
         <span className="text-ink-muted text-sm tabular-nums select-none">
           {baseSkinCount} {baseSkinCount === 1 ? "skin" : "skins"}
+          {customs.length > 0 && ` · ${customs.length} custom${customs.length === 1 ? "" : "s"}`}
         </span>
 
         <div className="relative max-w-64 flex-1">
@@ -233,14 +237,14 @@ export default function MySkins({
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col">
-          {filteredEntries.length === 0 && (
+          {filteredRows.length === 0 && !showOther && (
             <div className="text-ink-muted flex h-32 items-center justify-center text-sm">
               No champions match "{search}"
             </div>
           )}
-          {filteredEntries.map(([champion, groups]) => {
+          {filteredRows.map(({ champion, groups, customs: champCustoms }) => {
             const selectedSkin = selection[champion];
-            const baseCount = groups.length;
+            const baseCount = groups.length + champCustoms.length;
             return (
               <div
                 key={champion}
@@ -302,7 +306,11 @@ export default function MySkins({
                                 : `${group.baseSkinName} (base not downloaded)`
                             }
                           >
-                            <SkinThumb championName={champion} skinName={group.baseSkinName} />
+                            <SkinThumb
+                              championName={champion}
+                              skinName={group.baseSkinName}
+                              zipPath={(group.base ?? group.chromas[0]?.dl)?.zip_path}
+                            />
 
                             {baseSelected && (
                               <div className="bg-gold-400 absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full border border-white/30 shadow-sm">
@@ -394,10 +402,43 @@ export default function MySkins({
                       </div>
                     );
                   })}
+                  {champCustoms.map((c) => (
+                    <CustomCard
+                      key={c.name}
+                      custom={c}
+                      patcherActive={patcherActive}
+                      onToggle={onToggleCustom}
+                      size="sm"
+                    />
+                  ))}
                 </div>
               </div>
             );
           })}
+          {showOther && (
+            <div className="border-border flex items-start gap-3 border-b px-4 py-3">
+              <div className="flex w-32 shrink-0 items-center gap-2.5 pt-0.5">
+                <div className="bg-charcoal-500 flex h-8 w-8 items-center justify-center rounded">
+                  <Package size={14} strokeWidth={1.5} className="text-ink-muted" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-ink truncate text-xs font-medium">Other mods</p>
+                  <p className="text-ink-muted truncate text-[10px]">maps, UI, fonts</p>
+                </div>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+                {otherCustoms.map((c) => (
+                  <CustomCard
+                    key={c.name}
+                    custom={c}
+                    patcherActive={patcherActive}
+                    onToggle={onToggleCustom}
+                    size="sm"
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

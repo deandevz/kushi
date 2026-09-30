@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
@@ -7,7 +7,7 @@ import { useGamePath } from "./hooks/useGamePath";
 import { usePatcher } from "./hooks/usePatcher";
 import { useDownloads } from "./hooks/useDownloads";
 import { useCustoms } from "./hooks/useCustoms";
-import { ensureChampions } from "./hooks/useChampions";
+import { ensureChampions, sameChampion } from "./hooks/useChampions";
 import { ensureSkinIds, ensureRepoZips, ensureChromaInfo } from "./hooks/useSkinData";
 import { useVersionCheck } from "./hooks/useVersionCheck";
 import StatusBar from "./components/StatusBar";
@@ -20,7 +20,9 @@ import Customs from "./components/Customs";
 import Settings from "./components/Settings";
 import Toast from "./components/Toast";
 import UpdateBanner from "./components/UpdateBanner";
-import type { Champion } from "./types";
+import ActiveBar, { type ActiveItem } from "./components/ActiveBar";
+import { SkinThumb, ModThumb } from "./components/Thumbs";
+import type { Champion, CustomMod } from "./types";
 import logo from "./assets/icon.png";
 
 type View = "champions" | "my-skins" | "customs" | "settings";
@@ -89,6 +91,111 @@ function App() {
     if (id !== "champions") setSelectedChampion(null);
   }
 
+  // One skin per champion across official skins AND customs: picking anything
+  // for a champion drops whatever else was active for that champion.
+  const changeSkinSelection = useCallback(
+    (next: Record<string, string>) => {
+      const changed = Object.keys(next).filter((c) => next[c] !== skinSelection[c]);
+      if (changed.length > 0) {
+        customs.updateEnabled((set) => {
+          for (const c of customs.customs) {
+            if (c.champion && changed.some((ch) => sameChampion(ch, c.champion!.name))) {
+              set.delete(c.name);
+            }
+          }
+          return set;
+        });
+      }
+      setSkinSelection(next);
+    },
+    [skinSelection, customs]
+  );
+
+  const enableCustom = useCallback(
+    (mod: CustomMod) => {
+      const champ = mod.champion;
+      if (champ) {
+        setSkinSelection((prev) => {
+          const next = { ...prev };
+          for (const k of Object.keys(next)) if (sameChampion(k, champ.name)) delete next[k];
+          return next;
+        });
+      }
+      customs.updateEnabled((set) => {
+        if (champ) {
+          for (const c of customs.customs) {
+            if (c.champion?.id === champ.id) set.delete(c.name);
+          }
+        }
+        set.add(mod.name);
+        return set;
+      });
+    },
+    [customs]
+  );
+
+  const toggleCustom = useCallback(
+    (name: string) => {
+      if (customs.enabled.has(name)) {
+        customs.updateEnabled((set) => {
+          set.delete(name);
+          return set;
+        });
+        return;
+      }
+      const mod = customs.customs.find((c) => c.name === name);
+      if (mod) enableCustom(mod);
+    },
+    [customs, enableCustom]
+  );
+
+  const addCustom = useCallback(
+    async (path: string, autoEnable: boolean) => {
+      const mod = await customs.addCustom(path);
+      if (autoEnable) enableCustom(mod);
+    },
+    [customs, enableCustom]
+  );
+
+  const activeItems = useMemo<ActiveItem[]>(() => {
+    const items: ActiveItem[] = [];
+    for (const [championName, skinName] of Object.entries(skinSelection)) {
+      const skin = dl.downloads.find(
+        (d) => d.champion_name === championName && d.skin_name === skinName
+      );
+      if (!skin) continue;
+      items.push({
+        key: `skin:${championName}`,
+        label: skinName,
+        sublabel: championName,
+        thumb: <SkinThumb championName={championName} skinName={skinName} zipPath={skin.zip_path} />,
+        onRemove: () => {
+          const next = { ...skinSelection };
+          delete next[championName];
+          setSkinSelection(next);
+        },
+      });
+    }
+    for (const c of customs.customs) {
+      if (!customs.enabled.has(c.name)) continue;
+      items.push({
+        key: `custom:${c.name}`,
+        label: c.displayName,
+        sublabel: c.champion ? `${c.champion.name} · custom` : "Custom mod",
+        thumb: (
+          <ModThumb
+            path={c.file_path}
+            hasImage={c.hasImage}
+            champion={c.champion}
+            alt={c.displayName}
+          />
+        ),
+        onRemove: () => toggleCustom(c.name),
+      });
+    }
+    return items.sort((a, b) => a.sublabel.localeCompare(b.sublabel));
+  }, [skinSelection, dl.downloads, customs, toggleCustom]);
+
   const handleApply = useCallback(() => {
     const skinPaths: string[] = [];
     for (const [championName, skinName] of Object.entries(skinSelection)) {
@@ -130,9 +237,9 @@ function App() {
         <Customs
           customs={customs.customs}
           patcherActive={patcher.isActive}
-          onAdd={customs.addCustom}
+          onAdd={addCustom}
           onRemove={customs.remove}
-          onToggle={customs.toggle}
+          onToggle={toggleCustom}
         />
       );
     }
@@ -143,8 +250,10 @@ function App() {
           downloads={dl.downloads}
           patcherActive={patcher.isActive}
           selection={skinSelection}
-          onSelectionChange={setSkinSelection}
+          onSelectionChange={changeSkinSelection}
           onDelete={dl.deleteSkin}
+          customs={customs.customs}
+          onToggleCustom={toggleCustom}
         />
       );
     }
@@ -223,6 +332,10 @@ function App() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {(view === "my-skins" || view === "customs") && (
+          <ActiveBar items={activeItems} patcherActive={patcher.isActive} />
+        )}
+
         <main className="flex flex-1 flex-col overflow-hidden">{renderContent()}</main>
 
         <DownloadBar downloading={dl.downloading} />

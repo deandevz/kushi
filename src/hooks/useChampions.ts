@@ -80,8 +80,26 @@ export function ensureChampions(): Promise<Champion[]> {
   });
 }
 
+// "Master Yi", "MasterYi" and "masteryi" all normalize to the same key.
+export function normalizeChampion(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function sameChampion(a: string, b: string): boolean {
+  return normalizeChampion(a) === normalizeChampion(b);
+}
+
 export function findChampionByName(name: string): Champion | undefined {
-  return championsCache?.find((c) => c.name === name);
+  return (
+    championsCache?.find((c) => c.name === name) ??
+    championsCache?.find((c) => sameChampion(c.name, name) || sameChampion(c.id, name))
+  );
+}
+
+// WAD names use the DDragon id ("MasterYi", "MonkeyKing"), sometimes lowercased.
+export function findChampionByWad(wad: string): Champion | undefined {
+  const key = normalizeChampion(wad);
+  return championsCache?.find((c) => normalizeChampion(c.id) === key);
 }
 
 export function useChampions() {

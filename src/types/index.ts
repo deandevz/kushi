@@ -49,6 +49,20 @@ export interface CustomEntry {
   file_path: string;
 }
 
+export interface ModInfo {
+  name: string | null;
+  author: string | null;
+  version: string | null;
+  wads: string[];
+  has_image: boolean;
+}
+
 export interface CustomMod extends CustomEntry {
   enabled: boolean;
+  displayName: string;
+  author: string | null;
+  hasImage: boolean;
+  // Champion the mod replaces, when all its WADs belong to a single champion.
+  // Null for global mods (maps, UI, fonts...).
+  champion: Champion | null;
 }
