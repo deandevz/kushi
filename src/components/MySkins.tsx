@@ -26,7 +26,7 @@ function useChromaReady(): boolean {
 type DownloadGroup = {
   base: DownloadedSkin | null;
   baseSkinName: string;
-  chromas: { dl: DownloadedSkin; colors: string[] }[];
+  chromas: { dl: DownloadedSkin; colors: string[]; image: string | null }[];
 };
 
 type Selection = Record<string, string>;
@@ -129,7 +129,7 @@ export default function MySkins({
           g = { base: null, baseSkinName: chromaInfo.parentName, chromas: [] };
           champGroups.push(g);
         }
-        g.chromas.push({ dl: skin, colors: chromaInfo.colors });
+        g.chromas.push({ dl: skin, colors: chromaInfo.colors, image: chromaInfo.image });
       } else {
         let g = champGroups.find((g) => g.baseSkinName === skin.skin_name);
         if (!g) {
@@ -317,7 +317,20 @@ export default function MySkins({
                                 <Check size={11} strokeWidth={3} className="text-charcoal-600" />
                               </div>
                             )}
-                            {selectedChroma && (
+                            {selectedChroma?.image && (
+                              <div
+                                className="bg-charcoal-600 absolute top-1 right-1 h-7 w-6 overflow-hidden rounded-sm border-2 border-white shadow-sm"
+                                title={`Form: ${selectedChroma.dl.skin_name}`}
+                              >
+                                <img
+                                  src={selectedChroma.image}
+                                  alt=""
+                                  className="h-full w-full object-cover object-top"
+                                  draggable={false}
+                                />
+                              </div>
+                            )}
+                            {selectedChroma && !selectedChroma.image && (
                               <div
                                 className="absolute top-1 right-1 h-5 w-5 rounded-full border-2 border-white shadow-sm"
                                 style={{
@@ -374,7 +387,8 @@ export default function MySkins({
                                   disabled={patcherActive}
                                   title={`${c.dl.skin_name}\n(right-click to delete)`}
                                   className={[
-                                    "ring-offset-charcoal-400 relative h-4 w-4 shrink-0 rounded-sm transition-all",
+                                    "ring-offset-charcoal-400 relative shrink-0 overflow-hidden rounded-sm transition-all",
+                                    c.image ? "bg-charcoal-600 h-8 w-7" : "h-4 w-4",
                                     patcherActive
                                       ? "cursor-default opacity-50"
                                       : "cursor-pointer",
@@ -382,11 +396,21 @@ export default function MySkins({
                                       ? "ring-gold-400 ring-2 ring-offset-1"
                                       : "ring-charcoal-50/30 hover:ring-charcoal-50/60 ring-1",
                                   ].join(" ")}
-                                  style={{
-                                    background:
-                                      bg ?? "var(--color-charcoal-300, #3a3a3a)",
-                                  }}
+                                  style={
+                                    c.image
+                                      ? undefined
+                                      : { background: bg ?? "var(--color-charcoal-300, #3a3a3a)" }
+                                  }
                                 >
+                                  {c.image && (
+                                    <img
+                                      src={c.image}
+                                      alt={c.dl.skin_name}
+                                      className="h-full w-full object-cover object-top"
+                                      loading="lazy"
+                                      draggable={false}
+                                    />
+                                  )}
                                   {isSel && (
                                     <Check
                                       size={9}

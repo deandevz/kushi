@@ -54,6 +54,26 @@ function ChromaSwatch({
   chroma: Chroma;
   available: boolean;
 }) {
+  if (chroma.image) {
+    return (
+      <div
+        title={`${chroma.name}${!available ? " (not available)" : ""}`}
+        className={[
+          "bg-charcoal-600 h-9 w-8 shrink-0 overflow-hidden rounded-sm ring-1 transition-all",
+          available ? "ring-charcoal-50/30" : "ring-charcoal-50/10 opacity-30",
+        ].join(" ")}
+      >
+        <img
+          src={chroma.image}
+          alt={chroma.name}
+          className="h-full w-full object-cover object-top"
+          loading="lazy"
+          draggable={false}
+        />
+      </div>
+    );
+  }
+
   const [c1, c2] = chroma.colors;
   const bg = !c1
     ? undefined
@@ -92,6 +112,15 @@ function SkinCard({
   onDownloadGroup: (group: SkinGroup) => void;
 }) {
   const baseState = downloadKeyState(group.base);
+  // Chromas and forms can be downloaded after the base, so the card is only
+  // "done" once every variant is on disk.
+  const variantStates = group.chromas.map(downloadKeyState);
+  const complete =
+    baseState.downloaded && variantStates.every((v) => v.downloaded || !v.available);
+  const anyDownloading = baseState.isDownloading || variantStates.some((v) => v.isDownloading);
+  const missing = group.chromas.filter(
+    (_, i) => !variantStates[i].downloaded && variantStates[i].available
+  ).length;
 
   return (
     <div
@@ -106,11 +135,11 @@ function SkinCard({
         <SkinSplash skin={group.base} />
 
         <div className="absolute top-2 right-2 z-10">
-          {baseState.downloaded ? (
+          {complete ? (
             <span className="bg-success/90 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 shadow-lg">
               <Check size={14} strokeWidth={2.5} className="text-white" />
             </span>
-          ) : baseState.isDownloading ? (
+          ) : anyDownloading ? (
             <span className="bg-gold-400/90 flex h-7 w-7 items-center justify-center rounded-full shadow-lg">
               <Loader2 size={14} strokeWidth={2} className="animate-spin text-white" />
             </span>
@@ -118,11 +147,12 @@ function SkinCard({
             <button
               onClick={() => onDownloadGroup(group)}
               className="bg-charcoal-600/80 hover:bg-gold-400 hover:text-charcoal-600 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-white opacity-0 shadow-lg transition-colors group-hover:opacity-100"
-              title={
-                group.chromas.length > 0
-                  ? `Download skin and ${group.chromas.length} chroma${group.chromas.length === 1 ? "" : "s"}`
-                  : "Download"
-              }
+              title={(() => {
+                const kind = group.chromas.some((c) => c.image) ? "form" : "chroma";
+                const plural = missing === 1 ? "" : "s";
+                if (baseState.downloaded) return `Download ${missing} missing ${kind}${plural}`;
+                return missing > 0 ? `Download skin and ${missing} ${kind}${plural}` : "Download";
+              })()}
             >
               <Download size={14} strokeWidth={2} />
             </button>

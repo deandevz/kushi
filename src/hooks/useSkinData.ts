@@ -10,13 +10,111 @@ const SKINS_JSON_URL =
   "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/skins.json";
 
 const SKIN_IDS_CACHE_KEY = "zushi:skin_ids";
-// _v2 invalidates the stale name-based cache from older builds.
-const REPO_ZIPS_CACHE_KEY = "zushi:repo_files_v2";
+// _v3 adds the preview images, needed for skin forms.
+const REPO_ZIPS_CACHE_KEY = "zushi:repo_files_v3";
 const CHROMAS_CACHE_KEY = "zushi:chromas";
 
 let skinIdsCache: Record<string, string> | null = null;
 let repoZipsCache: Map<string, string> | null = null;
+let repoImagesCache: Map<string, string> | null = null;
 let chromaInfoCache: Map<number, { colors: string[]; parentId: number }> | null = null;
+
+// ---------------------------------------------------------------------------
+// Skin forms
+//
+// Transforming skins (Elementalist Lux, Risen Legend Ahri, Gun Goddess Miss
+// Fortune...) change in game only when the server knows you own them, which a
+// patched default skin never triggers. The skin repo ships each form as its own
+// small mod nested under the base skin, without an entry in skin_ids.json. We
+// register them as chroma-like variants so one form can be picked per game.
+
+export interface FormInfo {
+  parentId: number;
+  image: string | null;
+}
+
+// Readable names for forms whose mods don't carry a usable one. Anything not
+// listed falls back to "Form N" in repo order (the base skin is form 1).
+const FORM_LABELS: Record<string, string> = {
+  // Elementalist Lux
+  "99991": "Air",
+  "99992": "Dark",
+  "99993": "Ice",
+  "99994": "Magma",
+  "99995": "Mystic",
+  "99996": "Nature",
+  "99997": "Storm",
+  "99998": "Water",
+  "99999": "Fire",
+  // Gun Goddess Miss Fortune
+  "21997": "Zero Hour",
+  "21998": "Royal Arms",
+  "21999": "Starswarm",
+  // Revenant Reign Viego
+  "234994": "Assassin",
+  "234995": "Fighter",
+  "234996": "Mage",
+  "234997": "Marksman",
+  "234998": "Support",
+  "234999": "Tank",
+  // Risen Legend tiers (CommunityDragon questSkinInfo)
+  "103086": "Immortalized Legend",
+  "145071": "Immortalized Legend",
+  // K/DA ALL OUT Seraphine
+  "147002": "Rising Star",
+  "147003": "Superstar",
+};
+
+const formInfoCache = new Map<number, FormInfo>();
+let formsRegisteredFor: [Record<string, string>, Map<string, string>] | null = null;
+
+/** Nested repo entries missing from skin_ids.json become named forms of their parent. */
+function registerForms(): void {
+  if (!skinIdsCache || !repoZipsCache) return;
+  if (formsRegisteredFor?.[0] === skinIdsCache && formsRegisteredFor?.[1] === repoZipsCache) return;
+
+  const byParent = new Map<string, string[]>();
+  for (const [id, path] of repoZipsCache) {
+    const parts = path.split("/"); // skins/<champ>/<parent>/<id>/<file>
+    if (parts.length !== 5 || id in skinIdsCache) continue;
+    const parentId = parts[2];
+    if (!(parentId in skinIdsCache)) continue;
+    byParent.set(parentId, [...(byParent.get(parentId) ?? []), id]);
+  }
+
+  for (const [parentId, ids] of byParent) {
+    ids.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    ids.forEach((id, i) => {
+      const label = FORM_LABELS[id] ?? `Form ${i + 2}`;
+      skinIdsCache![id] = `${skinIdsCache![parentId]} (${label})`;
+      formInfoCache.set(parseInt(id, 10), {
+        parentId: parseInt(parentId, 10),
+        image: repoImageUrl(id),
+      });
+    });
+  }
+
+  formsRegisteredFor = [skinIdsCache, repoZipsCache];
+  indexedFrom = null; // names were added, rebuild the reverse indexes
+}
+
+function repoImageUrl(id: string): string | null {
+  const path = repoImagesCache?.get(id);
+  if (!path) return null;
+  const encoded = path.split("/").map((seg) => encodeURIComponent(seg)).join("/");
+  return `https://raw.githubusercontent.com/Alban1911/LeagueSkins/main/${encoded}`;
+}
+
+export function lookupForm(skinId: number): FormInfo | null {
+  return formInfoCache.get(skinId) ?? null;
+}
+
+/** Chroma or form: both group under a parent skin as selectable variants. */
+function variantOf(id: number): { colors: string[]; parentId: number; image?: string | null } | undefined {
+  const form = formInfoCache.get(id);
+  if (form) return { colors: [], parentId: form.parentId, image: form.image };
+  return chromaInfoCache?.get(id);
+}
 
 // Reverse indices over skinIdsCache so name-based lookups are O(1) instead of
 // scanning all ~9k entries on every call (My Skins does this per skin, per render).
@@ -46,6 +144,7 @@ export function ensureSkinIds(): Promise<Record<string, string>> {
   const cached = getCached<Record<string, string>>(SKIN_IDS_CACHE_KEY);
   if (cached) {
     skinIdsCache = cached;
+    registerForms();
     return Promise.resolve(cached);
   }
 
@@ -55,14 +154,16 @@ export function ensureSkinIds(): Promise<Record<string, string>> {
       return res.json();
     })
     .then((data: Record<string, string>) => {
-      skinIdsCache = data;
       setCache(SKIN_IDS_CACHE_KEY, data);
+      skinIdsCache = data;
+      registerForms();
       return data;
     })
     .catch((err) => {
       const stale = getStale<Record<string, string>>(SKIN_IDS_CACHE_KEY);
       if (stale) {
         skinIdsCache = stale;
+        registerForms();
         return stale;
       }
       throw err;
@@ -72,11 +173,16 @@ export function ensureSkinIds(): Promise<Record<string, string>> {
 export function ensureRepoZips(): Promise<Map<string, string>> {
   if (repoZipsCache) return Promise.resolve(repoZipsCache);
 
-  const cached = getCached<[string, string][]>(REPO_ZIPS_CACHE_KEY);
-  if (cached) {
-    repoZipsCache = new Map(cached);
-    return Promise.resolve(repoZipsCache);
-  }
+  type RepoCache = { zips: [string, string][]; images: [string, string][] };
+  const load = (c: RepoCache) => {
+    repoZipsCache = new Map(c.zips);
+    repoImagesCache = new Map(c.images);
+    registerForms();
+    return repoZipsCache;
+  };
+
+  const cached = getCached<RepoCache>(REPO_ZIPS_CACHE_KEY);
+  if (cached) return Promise.resolve(load(cached));
 
   return fetch(TREE_API_URL)
     .then((res) => {
@@ -85,8 +191,14 @@ export function ensureRepoZips(): Promise<Map<string, string>> {
     })
     .then((data: { tree: { path: string; type: string }[] }) => {
       const map = new Map<string, string>();
+      const images = new Map<string, string>();
       for (const entry of data.tree) {
         if (entry.type !== "blob" || !entry.path.startsWith("skins/")) continue;
+        const png = entry.path.match(/\/(\d+)\.png$/);
+        if (png) {
+          images.set(png[1], entry.path);
+          continue;
+        }
         // Paths are id-based, e.g. "skins/222/222020/222025/222025.fantome".
         // The filename stem is the skin id, matching skin_ids.json keys.
         const filename = entry.path.split("/").pop() ?? "";
@@ -100,16 +212,13 @@ export function ensureRepoZips(): Promise<Map<string, string>> {
         if (!/^\d+$/.test(skinId)) continue;
         map.set(skinId, entry.path);
       }
-      repoZipsCache = map;
-      setCache(REPO_ZIPS_CACHE_KEY, [...map.entries()]);
-      return map;
+      const fresh: RepoCache = { zips: [...map.entries()], images: [...images.entries()] };
+      setCache(REPO_ZIPS_CACHE_KEY, fresh);
+      return load(fresh);
     })
     .catch((err) => {
-      const stale = getStale<[string, string][]>(REPO_ZIPS_CACHE_KEY);
-      if (stale) {
-        repoZipsCache = new Map(stale);
-        return repoZipsCache;
-      }
+      const stale = getStale<RepoCache>(REPO_ZIPS_CACHE_KEY);
+      if (stale) return load(stale);
       throw err;
     });
 }
@@ -162,7 +271,7 @@ export function getSkinsForChampion(champion: Champion, skinIds: Record<string, 
 
     // Skip chromas of the default skin (e.g. "Steel Blitzcrank") — not real,
     // applicable skins and they have no card to group under. See grouping below.
-    const chromaInfo = chromaInfoCache?.get(numericId);
+    const chromaInfo = variantOf(numericId);
     if (chromaInfo && chromaInfo.parentId % 1000 === 0) continue;
 
     skins.push({
@@ -183,7 +292,7 @@ export function getSkinsGroupedForChampion(
   skinIds: Record<string, string>
 ): SkinGroup[] {
   const flat = getSkinsForChampion(champion, skinIds);
-  if (!chromaInfoCache || chromaInfoCache.size === 0) {
+  if ((!chromaInfoCache || chromaInfoCache.size === 0) && formInfoCache.size === 0) {
     return flat.map((s) => ({ base: s, chromas: [] }));
   }
 
@@ -195,7 +304,7 @@ export function getSkinsGroupedForChampion(
 
   for (const s of flat) {
     const numericId = parseInt(s.id, 10);
-    const chromaInfo = chromaInfoCache.get(numericId);
+    const chromaInfo = variantOf(numericId);
 
     if (!chromaInfo) {
       groups.set(numericId, { base: s, chromas: [] });
@@ -204,7 +313,12 @@ export function getSkinsGroupedForChampion(
 
     const parentSkin = byId.get(chromaInfo.parentId);
     const parentName = parentSkin?.name ?? s.name.replace(/\s+\([^)]+\)$/, "");
-    const chroma: Chroma = { ...s, parentName, colors: chromaInfo.colors };
+    const chroma: Chroma = {
+      ...s,
+      parentName,
+      colors: chromaInfo.colors,
+      image: chromaInfo.image ?? null,
+    };
 
     const parentGroup = groups.get(chromaInfo.parentId);
     if (parentGroup) {
@@ -215,7 +329,7 @@ export function getSkinsGroupedForChampion(
   }
 
   for (const c of orphans) {
-    const info = chromaInfoCache.get(parseInt(c.id, 10));
+    const info = variantOf(parseInt(c.id, 10));
     const g = info ? groups.get(info.parentId) : undefined;
     if (g) {
       g.chromas.push(c);
@@ -232,20 +346,20 @@ export function getSkinsGroupedForChampion(
 
 export function lookupChromaInfo(
   skinName: string
-): { colors: string[]; parentName: string } | null {
-  if (!skinIdsCache || !chromaInfoCache) return null;
+): { colors: string[]; parentName: string; image: string | null } | null {
+  if (!skinIdsCache) return null;
   ensureSkinIndexes();
 
   const foundIdStr = skinNameToId!.get(skinName);
   if (foundIdStr === undefined) return null;
 
-  const info = chromaInfoCache.get(parseInt(foundIdStr, 10));
+  const info = variantOf(parseInt(foundIdStr, 10));
   if (!info) return null;
 
   // skinIdsCache is already id→name, so the parent name is a direct lookup.
   const parentName = skinIdsCache[String(info.parentId)] ?? skinName.replace(/\s+\([^)]+\)$/, "");
 
-  return { colors: info.colors, parentName };
+  return { colors: info.colors, parentName, image: info.image ?? null };
 }
 
 /**

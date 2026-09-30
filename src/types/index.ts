@@ -31,6 +31,8 @@ export interface Skin {
 export interface Chroma extends Skin {
   parentName: string;
   colors: string[];
+  /** Render of a skin form (Elementalist Lux, Risen Legend...); null for color chromas. */
+  image?: string | null;
 }
 
 export interface SkinGroup {
