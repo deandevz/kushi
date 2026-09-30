@@ -95,6 +95,20 @@ export function useCustoms() {
     []
   );
 
+  // Add entries written by the backend (e.g. the Celestial bridge) without a refetch.
+  const ingest = useCallback(async (entries: CustomEntry[]): Promise<CustomMod[]> => {
+    await ensureChampions().catch(() => {});
+    const mods = (await Promise.all(entries.map(describe))).map((m) => ({ ...m, enabled: false }));
+    for (const m of mods) forgetModImage(m.file_path);
+    setCustoms((prev) => {
+      const names = new Set(mods.map((m) => m.name));
+      return [...prev.filter((c) => !names.has(c.name)), ...mods].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+    });
+    return mods;
+  }, []);
+
   const remove = useCallback(
     async (name: string) => {
       await removeCustom(name);
@@ -120,6 +134,7 @@ export function useCustoms() {
     enabled,
     updateEnabled,
     addCustom,
+    ingest,
     remove,
     refresh,
     enabledPaths,

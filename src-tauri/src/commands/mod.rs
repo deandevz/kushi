@@ -1,3 +1,4 @@
+pub mod celestial;
 pub mod customs;
 pub mod game_path;
 pub mod mod_info;

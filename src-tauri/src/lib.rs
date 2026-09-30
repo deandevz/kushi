@@ -325,6 +325,7 @@ pub fn run() {
             commands::customs::get_customs_dir_size,
             commands::mod_info::read_mod_info,
             commands::mod_info::read_mod_image,
+            commands::celestial::sync_celestial,
             commands::open_url,
         ])
         .run(tauri::generate_context!())

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PatcherStatus, DownloadedSkin, ModInfo } from "../types";
+import type { PatcherStatus, DownloadedSkin, ModInfo, CustomEntry } from "../types";
 
 export async function detectGamePath(): Promise<string | null> {
   return invoke<string | null>("detect_game_path");
@@ -97,4 +97,14 @@ export async function readModInfo(path: string): Promise<ModInfo> {
 
 export async function readModImage(path: string): Promise<string | null> {
   return invoke<string | null>("read_mod_image", { path });
+}
+
+export interface CelestialSyncResult {
+  available: boolean;
+  first_run: boolean;
+  imported: CustomEntry[];
+}
+
+export async function syncCelestial(): Promise<CelestialSyncResult> {
+  return invoke<CelestialSyncResult>("sync_celestial");
 }

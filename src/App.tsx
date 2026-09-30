@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { syncCelestial } from "./lib/commands";
 import { Swords, Layers, Package, Settings as SettingsIcon, Star } from "lucide-react";
 import { useGamePath } from "./hooks/useGamePath";
 import { usePatcher } from "./hooks/usePatcher";
@@ -51,6 +52,7 @@ function App() {
   });
   const [appVersion, setAppVersion] = useState("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastTone, setToastTone] = useState<"error" | "info">("error");
 
   useEffect(() => {
     getVersion()
@@ -78,12 +80,18 @@ function App() {
 
   // Surface patcher errors as toast
   useEffect(() => {
-    if (patcher.error) setToastMessage(patcher.error);
+    if (patcher.error) {
+      setToastTone("error");
+      setToastMessage(patcher.error);
+    }
   }, [patcher.error]);
 
   // Surface customs errors as toast
   useEffect(() => {
-    if (customs.error) setToastMessage(customs.error);
+    if (customs.error) {
+      setToastTone("error");
+      setToastMessage(customs.error);
+    }
   }, [customs.error]);
 
   function handleNavClick(id: View): void {
@@ -156,6 +164,38 @@ function App() {
     },
     [customs, enableCustom]
   );
+
+  // Celestial bridge: skins installed via "Open in Celestial" show up here on
+  // their own. A single new one gets selected right away for its champion.
+  const celestialBusy = useRef(false);
+  const syncFromCelestial = useCallback(async () => {
+    if (celestialBusy.current) return;
+    celestialBusy.current = true;
+    try {
+      const res = await syncCelestial();
+      if (res.imported.length === 0) return;
+      const mods = await customs.ingest(res.imported);
+      if (!res.first_run && mods.length === 1 && !patcher.isActive) enableCustom(mods[0]);
+      setToastTone("info");
+      setToastMessage(
+        mods.length === 1
+          ? `${mods[0].displayName} imported from Celestial`
+          : `${mods.length} skins imported from Celestial`
+      );
+    } catch (e) {
+      console.error("Celestial sync failed", e);
+    } finally {
+      celestialBusy.current = false;
+    }
+  }, [customs, enableCustom, patcher.isActive]);
+
+  const syncRef = useRef(syncFromCelestial);
+  syncRef.current = syncFromCelestial;
+  useEffect(() => {
+    syncRef.current();
+    const id = setInterval(() => syncRef.current(), 3000);
+    return () => clearInterval(id);
+  }, []);
 
   const activeItems = useMemo<ActiveItem[]>(() => {
     const items: ActiveItem[] = [];
@@ -353,6 +393,7 @@ function App() {
         <Toast
           key={toastMessage ?? dl.error ?? ""}
           message={toastMessage ?? dl.error ?? ""}
+          tone={toastMessage ? toastTone : "error"}
           onClose={() => {
             setToastMessage(null);
             dl.clearError();

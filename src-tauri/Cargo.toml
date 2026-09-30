@@ -25,3 +25,4 @@ ureq = "2"
 libc = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 base64 = "0.22"
+ltk_modpkg = "0.12"
