@@ -38,12 +38,15 @@ export function ModThumb({
   champion,
   alt,
   dim,
+  compact,
 }: {
   path: string;
   hasImage?: boolean;
   champion: Champion | null | undefined;
   alt: string;
   dim?: boolean;
+  /** Small square (Active bar): center the fallback icon, no room reserved for a caption. */
+  compact?: boolean;
 }) {
   const embedded = useModImage(path, hasImage);
   const [splashFailed, setSplashFailed] = useState(false);
@@ -59,8 +62,13 @@ export function ModThumb({
   }
 
   return (
-    <div className="bg-charcoal-300 flex h-full w-full items-center justify-center pb-4">
-      <FileArchive size={30} strokeWidth={1} className="text-ink-muted/40" />
+    <div
+      className={[
+        "bg-charcoal-300 flex h-full w-full items-center justify-center",
+        compact ? "" : "pb-4",
+      ].join(" ")}
+    >
+      <FileArchive size={compact ? 18 : 30} strokeWidth={compact ? 1.5 : 1} className="text-ink-muted/60" />
     </div>
   );
 }
@@ -70,17 +78,19 @@ export function SkinThumb({
   championName,
   skinName,
   zipPath,
+  compact,
 }: {
   championName: string;
   skinName: string;
   zipPath?: string;
+  compact?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   const champ = findChampionByName(championName);
   const num = lookupSplashNum(skinName);
 
   if (!champ || num === null || failed) {
-    if (zipPath) return <ModThumb path={zipPath} champion={champ} alt={skinName} dim />;
+    if (zipPath) return <ModThumb path={zipPath} champion={champ} alt={skinName} dim compact={compact} />;
     return <div className="bg-charcoal-600 h-full w-full" />;
   }
 

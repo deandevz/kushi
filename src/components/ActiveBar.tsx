@@ -29,10 +29,10 @@ export default function ActiveBar({
           {items.map((item) => (
             <div
               key={item.key}
-              className="bg-charcoal-400 border-gold-400/30 group flex h-10 shrink-0 items-center gap-2 rounded-md border pr-2"
+              className="bg-charcoal-400 border-gold-400/30 group flex h-10 shrink-0 items-center gap-2 overflow-hidden rounded-md border pr-2"
               title={`${item.label}\n${item.sublabel}`}
             >
-              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-l-md">
+              <div className="relative aspect-square h-full shrink-0 overflow-hidden">
                 {item.thumb}
               </div>
               <div className="max-w-36 min-w-0">

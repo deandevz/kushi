@@ -228,7 +228,9 @@ function App() {
         key: `skin:${championName}`,
         label: skinName,
         sublabel: championName,
-        thumb: <SkinThumb championName={championName} skinName={skinName} zipPath={skin.zip_path} />,
+        thumb: (
+          <SkinThumb championName={championName} skinName={skinName} zipPath={skin.zip_path} compact />
+        ),
         onRemove: () => {
           const next = { ...skinSelection };
           delete next[championName];
@@ -248,6 +250,7 @@ function App() {
             hasImage={c.hasImage}
             champion={c.champion}
             alt={c.displayName}
+            compact
           />
         ),
         onRemove: () => toggleCustom(c.name),
