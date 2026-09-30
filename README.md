@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/tauri-2-24C8D8" alt="Tauri" />
   <img src="https://img.shields.io/badge/react-19-61DAFB" alt="React" />
   <img src="https://img.shields.io/badge/fork%20of-Zushi%200.1.13-c89b3c" alt="Fork of Zushi" />
-  <img src="https://img.shields.io/badge/version-0.2.0-c89b3c" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.2.1-c89b3c" alt="Version" />
 </p>
 
 <p align="center">
