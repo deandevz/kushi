@@ -21,4 +21,4 @@ mod-tools/target/
 
 *.sh
 .claude
-*.todo
+*.todobranding/*.txt

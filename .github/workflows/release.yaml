@@ -1,8 +1,9 @@
 name: Release
 
+# Manual only: this fork has no release pipeline yet, and pushes to a
+# private repo would burn macOS runner minutes.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
