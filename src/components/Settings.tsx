@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Power, FolderOpen, Trash2, Loader2, HardDrive } from "lucide-react";
+import { Power, FolderOpen, Trash2, Loader2, HardDrive, RefreshCw } from "lucide-react";
 import { getSkinsDirSize, getWorkDirSize, getCustomsDirSize, clearAllSkins, clearWorkDir, clearAllCustoms } from "../lib/commands";
+import { refreshSkinData, skinListUpdatedAt } from "../hooks/useSkinData";
 import Toast from "./Toast";
 
 interface SettingsProps {
@@ -20,6 +21,16 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+function formatAge(timestamp: number): string {
+  const minutes = Math.floor((Date.now() - timestamp) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
 export default function Settings({
   gamePath,
   onPathChange,
@@ -30,7 +41,10 @@ export default function Settings({
   const [autoStart, setAutoStart] = useState(false);
   const [autoStartLoading, setAutoStartLoading] = useState(true);
   const [pathLoading, setPathLoading] = useState(false);
-  const [pathError, setPathError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: "error" | "info" } | null>(null);
+  const closeToast = useCallback(() => setToast(null), []);
+  const [refreshingList, setRefreshingList] = useState(false);
+  const [listUpdatedAt, setListUpdatedAt] = useState(skinListUpdatedAt);
 
   // Cache state
   const [skinsSize, setSkinsSize] = useState(0);
@@ -82,7 +96,7 @@ export default function Settings({
   };
 
   const handleChangePath = async () => {
-    setPathError(null);
+    setToast(null);
     setPathLoading(true);
     try {
       const selected = await open({
@@ -92,13 +106,36 @@ export default function Settings({
       if (selected) {
         const valid = await onPathChange(selected as string);
         if (!valid) {
-          setPathError("Invalid game path: LeagueofLegends.app not found");
+          setToast({ message: "Invalid game path: LeagueofLegends.app not found", tone: "error" });
         }
       }
     } catch {
-      setPathError("Failed to open file dialog.");
+      setToast({ message: "Failed to open file dialog.", tone: "error" });
     } finally {
       setPathLoading(false);
+    }
+  };
+
+  const handleRefreshList = async () => {
+    setRefreshingList(true);
+    try {
+      const added = await refreshSkinData();
+      setToast({
+        message:
+          added > 0
+            ? `Skin list updated: ${added} new skin${added === 1 ? "" : "s"}`
+            : "Skin list is already up to date",
+        tone: "info",
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      setToast({
+        message: `Couldn't refresh the skin list (${reason}). Try again in a few minutes.`,
+        tone: "error",
+      });
+    } finally {
+      setListUpdatedAt(skinListUpdatedAt());
+      setRefreshingList(false);
     }
   };
 
@@ -189,6 +226,29 @@ export default function Settings({
             {pathLoading ? "Validating..." : "Change"}
           </button>
         </div>
+
+        {/* Skin list */}
+        <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <RefreshCw size={16} strokeWidth={1.5} className="text-ink-muted shrink-0" />
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-ink text-sm">Skin list</span>
+              <span className="text-ink-muted truncate text-xs">
+                {listUpdatedAt
+                  ? `Last checked ${formatAge(listUpdatedAt)}, refreshes on its own every 24h`
+                  : "Not loaded yet"}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={handleRefreshList}
+            disabled={refreshingList}
+            className="border-border text-ink-secondary hover:border-gold-400 hover:text-gold-400 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-3.5 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {refreshingList && <Loader2 size={13} strokeWidth={2} className="animate-spin" />}
+            {refreshingList ? "Checking..." : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Storage */}
@@ -263,7 +323,7 @@ export default function Settings({
         <p className="text-ink-muted mt-2 px-1 text-xs">Stop the patcher before clearing data.</p>
       )}
 
-      {pathError && <Toast message={pathError} onClose={() => setPathError(null)} />}
+      {toast && <Toast key={toast.message} message={toast.message} tone={toast.tone} onClose={closeToast} />}
     </div>
   );
 }

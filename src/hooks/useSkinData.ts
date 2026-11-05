@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getCached, getStale, setCache } from "../lib/cache";
+import { getCached, getStale, setCache, getCacheTime } from "../lib/cache";
 import type { Champion, Skin, Chroma, SkinGroup } from "../types";
 
 const SKIN_IDS_URL =
@@ -148,12 +148,8 @@ export function ensureSkinIds(): Promise<Record<string, string>> {
     return Promise.resolve(cached);
   }
 
-  return fetch(SKIN_IDS_URL)
-    .then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    })
-    .then((data: Record<string, string>) => {
+  return fetchSkinIds()
+    .then((data) => {
       setCache(SKIN_IDS_CACHE_KEY, data);
       skinIdsCache = data;
       registerForms();
@@ -170,21 +166,18 @@ export function ensureSkinIds(): Promise<Record<string, string>> {
     });
 }
 
-export function ensureRepoZips(): Promise<Map<string, string>> {
-  if (repoZipsCache) return Promise.resolve(repoZipsCache);
+type RepoCache = { zips: [string, string][]; images: [string, string][] };
+type ChromaInfo = Map<number, { colors: string[]; parentId: number }>;
 
-  type RepoCache = { zips: [string, string][]; images: [string, string][] };
-  const load = (c: RepoCache) => {
-    repoZipsCache = new Map(c.zips);
-    repoImagesCache = new Map(c.images);
-    registerForms();
-    return repoZipsCache;
-  };
+function fetchSkinIds(init?: RequestInit): Promise<Record<string, string>> {
+  return fetch(SKIN_IDS_URL, init).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+}
 
-  const cached = getCached<RepoCache>(REPO_ZIPS_CACHE_KEY);
-  if (cached) return Promise.resolve(load(cached));
-
-  return fetch(TREE_API_URL)
+function fetchRepoTree(init?: RequestInit): Promise<RepoCache> {
+  return fetch(TREE_API_URL, init)
     .then((res) => {
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       return res.json();
@@ -212,18 +205,54 @@ export function ensureRepoZips(): Promise<Map<string, string>> {
         if (!/^\d+$/.test(skinId)) continue;
         map.set(skinId, entry.path);
       }
-      const fresh: RepoCache = { zips: [...map.entries()], images: [...images.entries()] };
+      return { zips: [...map.entries()], images: [...images.entries()] };
+    });
+}
+
+function fetchChromaInfo(init?: RequestInit): Promise<ChromaInfo> {
+  return fetch(SKINS_JSON_URL, init)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then((data: Record<string, { id: number; chromas?: { id: number; colors?: string[] }[] }>) => {
+      const map: ChromaInfo = new Map();
+      for (const [, skin] of Object.entries(data)) {
+        if (!skin.chromas) continue;
+        for (const c of skin.chromas) {
+          map.set(c.id, { colors: c.colors ?? [], parentId: skin.id });
+        }
+      }
+      return map;
+    });
+}
+
+function loadRepo(c: RepoCache): Map<string, string> {
+  repoZipsCache = new Map(c.zips);
+  repoImagesCache = new Map(c.images);
+  registerForms();
+  return repoZipsCache;
+}
+
+export function ensureRepoZips(): Promise<Map<string, string>> {
+  if (repoZipsCache) return Promise.resolve(repoZipsCache);
+
+  const cached = getCached<RepoCache>(REPO_ZIPS_CACHE_KEY);
+  if (cached) return Promise.resolve(loadRepo(cached));
+
+  return fetchRepoTree()
+    .then((fresh) => {
       setCache(REPO_ZIPS_CACHE_KEY, fresh);
-      return load(fresh);
+      return loadRepo(fresh);
     })
     .catch((err) => {
       const stale = getStale<RepoCache>(REPO_ZIPS_CACHE_KEY);
-      if (stale) return load(stale);
+      if (stale) return loadRepo(stale);
       throw err;
     });
 }
 
-export function ensureChromaInfo(): Promise<Map<number, { colors: string[]; parentId: number }>> {
+export function ensureChromaInfo(): Promise<ChromaInfo> {
   if (chromaInfoCache) return Promise.resolve(chromaInfoCache);
 
   const cached = getCached<[number, { colors: string[]; parentId: number }][]>(CHROMAS_CACHE_KEY);
@@ -232,19 +261,8 @@ export function ensureChromaInfo(): Promise<Map<number, { colors: string[]; pare
     return Promise.resolve(chromaInfoCache);
   }
 
-  return fetch(SKINS_JSON_URL)
-    .then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    })
-    .then((data: Record<string, { id: number; chromas?: { id: number; colors?: string[] }[] }>) => {
-      const map = new Map<number, { colors: string[]; parentId: number }>();
-      for (const [, skin] of Object.entries(data)) {
-        if (!skin.chromas) continue;
-        for (const c of skin.chromas) {
-          map.set(c.id, { colors: c.colors ?? [], parentId: skin.id });
-        }
-      }
+  return fetchChromaInfo()
+    .then((map) => {
       chromaInfoCache = map;
       setCache(CHROMAS_CACHE_KEY, [...map.entries()]);
       return map;
@@ -253,6 +271,49 @@ export function ensureChromaInfo(): Promise<Map<number, { colors: string[]; pare
       chromaInfoCache = new Map();
       return chromaInfoCache;
     });
+}
+
+/** When the skin list was last downloaded (the older of its two parts), or null. */
+export function skinListUpdatedAt(): number | null {
+  const times = [getCacheTime(SKIN_IDS_CACHE_KEY), getCacheTime(REPO_ZIPS_CACHE_KEY)];
+  if (times.some((t) => t === null)) return null;
+  return Math.min(...(times as number[]));
+}
+
+/**
+ * Downloads the skin list again, skipping the 24h cache, so skins just added
+ * to the repo show up without waiting for it to expire. The current list stays
+ * in place unless both the skin names and the repo tree download. Resolves to
+ * how many skins are new.
+ */
+export async function refreshSkinData(): Promise<number> {
+  const noCache: RequestInit = { cache: "no-store" };
+  const [ids, repo, chromas] = await Promise.all([
+    fetchSkinIds(noCache),
+    fetchRepoTree(noCache),
+    // Chroma colors are cosmetic: keep the old ones if CommunityDragon fails.
+    fetchChromaInfo(noCache).catch(() => null),
+  ]);
+
+  // A skin that only showed as an unnamed form (tree newer than the names)
+  // counts as new too.
+  const before = skinIdsCache ?? getStale<Record<string, string>>(SKIN_IDS_CACHE_KEY);
+  const added = before
+    ? Object.keys(ids).filter((id) => !(id in before) || formInfoCache.has(parseInt(id, 10))).length
+    : 0;
+
+  setCache(SKIN_IDS_CACHE_KEY, ids);
+  setCache(REPO_ZIPS_CACHE_KEY, repo);
+  if (chromas) {
+    chromaInfoCache = chromas;
+    setCache(CHROMAS_CACHE_KEY, [...chromas.entries()]);
+  }
+
+  // Forms are rebuilt from the new tree; drop the ones from the old list.
+  formInfoCache.clear();
+  skinIdsCache = ids;
+  loadRepo(repo);
+  return added;
 }
 
 export function getSkinsForChampion(champion: Champion, skinIds: Record<string, string>): Skin[] {

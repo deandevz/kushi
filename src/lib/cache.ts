@@ -39,3 +39,15 @@ export function setCache<T>(key: string, data: T): void {
     // localStorage full or unavailable - ignore
   }
 }
+
+/** When the entry was last written, in ms since epoch, or null if there is none. */
+export function getCacheTime(key: string): number | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const entry: CacheEntry<unknown> = JSON.parse(raw);
+    return typeof entry.timestamp === "number" ? entry.timestamp : null;
+  } catch {
+    return null;
+  }
+}
